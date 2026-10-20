@@ -1,0 +1,86 @@
+
+name: Build ThemidaUnpacker Windows EXEs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows ${{ matrix.arch }}
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            python-architecture: x64
+          - arch: x86
+            python-architecture: x86
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: ${{ matrix.python-architecture }}
+
+      - name: Show build architecture
+        shell: pwsh
+        run: |
+          python -c "import platform, struct, sys; print('Python:', sys.version); print('Machine:', platform.machine()); print('Bits:', struct.calcsize('P') * 8)"
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install poetry
+
+      - name: Install project dependencies
+        shell: pwsh
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --with dev
+        # If the project has no "dev" group, replace with:
+        # poetry install
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          poetry run pyinstaller --clean --noconfirm unlicense.spec
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          $exe = "dist/unlicense.exe"
+
+          if (!(Test-Path $exe)) {
+            throw "Build failed: $exe was not generated"
+          }
+
+          $bits = python -c "import struct; print(struct.calcsize('P') * 8)"
+          if ("${{ matrix.arch }}" -eq "x86" -and $bits -ne "32") {
+            throw "Expected 32-bit Python, got $bits-bit"
+          }
+          if ("${{ matrix.arch }}" -eq "x64" -and $bits -ne "64") {
+            throw "Expected 64-bit Python, got $bits-bit"
+          }
+
+          Get-Item $exe | Format-List Name, Length
+          Get-FileHash $exe -Algorithm SHA256
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThemidaUnpacker-Windows-${{ matrix.arch }}
+          path: dist/unlicense.exe
+          if-no-files-found: error
+          retention-days: 14
