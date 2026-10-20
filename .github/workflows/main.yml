@@ -1,0 +1,60 @@
+
+name: Build ThemidaUnpacker Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+          cache: pip
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install poetry
+
+      - name: Install project dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --with dev
+        # If this repository version does not define a dev group,
+        # remove --with dev and use: poetry install
+
+      - name: Build executable
+        run: |
+          poetry run pyinstaller --clean --noconfirm unlicense.spec
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          $exe = "dist/unlicense.exe"
+          if (!(Test-Path $exe)) {
+            throw "Build failed: $exe was not generated"
+          }
+          Get-Item $exe | Format-List Name, Length, FullName
+          Get-FileHash $exe -Algorithm SHA256
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThemidaUnpacker-Windows-x64
+          path: dist/unlicense.exe
+          if-no-files-found: error
+          retention-days: 14
